@@ -1,10 +1,7 @@
 import * as path from "path";
-import * as http from "http";
-import * as https from "https";
 import * as os from "os";
-import { URL } from "url";
-import { BrowserPlatform } from "@puppeteer/browsers";
 import * as fs from "fs";
+import { BrowserPlatform } from "@puppeteer/browsers";
 
 interface ComputeExecutablePathOptions {
     platform: string;
@@ -16,29 +13,6 @@ export const computeExecutablePath = (options: ComputeExecutablePathOptions): st
     const { platform, buildId, cacheDir } = options;
     const executableDir = path.resolve(cacheDir, `.chromium-${buildId}`, platform === "linux" ? "chrome-linux" : "chrome-mac");
     return path.resolve(executableDir, "chrome");
-};
-
-export const headRequest = (url: string): Promise<boolean> => {
-    return new Promise((resolve) => {
-        const urlParsed = new URL(url);
-        const isHttps = urlParsed.protocol === "https:";
-        const options = {
-            method: "HEAD",
-            hostname: urlParsed.hostname,
-            path: urlParsed.pathname + urlParsed.search,
-        };
-
-        const request = isHttps ? https.request(options) : http.request(options);
-        request.setTimeout(3000);
-        request.end();
-
-        request.on("response", (res) => {
-            resolve(res.statusCode === 200);
-        });
-
-        request.on("error", () => resolve(false));
-        request.on("timeout", () => resolve(false));
-    });
 };
 
 export const detectPlatform = (): BrowserPlatform => {

@@ -11,6 +11,7 @@ interface MuppeteerOptions {
     executablePath?: string;
     platform?: BrowserPlatform;
     hosts?: string[];
+    folderName?: string;
 }
 
 const getCacheDir = (options: MuppeteerOptions): string => {
@@ -22,8 +23,57 @@ const getCacheDir = (options: MuppeteerOptions): string => {
     return cacheDir;
 };
 
+export const getSnapshotsDir = (options: MuppeteerOptions): string => {
+    const folderName = options.folderName || '.chromium-browser-snapshots';
+    const snapshotsDir = path.resolve(options.cacheDir!, folderName);
+    if (!fs.existsSync(snapshotsDir)) {
+        try {
+            fs.mkdirSync(snapshotsDir, { recursive: true });
+        } catch (e) {
+            console.error(`Failed to create snapshots dir: ${snapshotsDir}`, e);
+        }
+    }
+    return snapshotsDir;
+};
+
+const getBaseUrl = (host: string) => {
+    return `${host}/chromium-browser-snapshots`;
+};
+
+const downloadChromium = async (options: MuppeteerOptions, baseUrl: string, revision: string) => {
+    const platform = options.platform || detectPlatform();
+    const snapshotsDir = getSnapshotsDir(options);
+    const executablePath = computeExecutablePath({
+        platform,
+        buildId: revision,
+        cacheDir: snapshotsDir
+    });
+
+    if (!fs.existsSync(executablePath)) {
+        console.log(`Downloading Chromium revision ${revision} from ${baseUrl}...`);
+        try {
+            await install({
+                browser: Browser.CHROMIUM,
+                cacheDir: snapshotsDir,
+                buildId: revision,
+                baseUrl: baseUrl
+            });
+        } catch (error) {
+            console.error("Failed to download Chromium", error);
+            throw error
+        }
+    }
+
+    if (!fs.existsSync(executablePath)) {
+        throw new Error("Failed to install Chromium");
+    }
+
+    return executablePath;
+};
+
 const muppeteer = async (options: MuppeteerOptions = {}): Promise<string> => {
     const cacheDir = getCacheDir(options);
+    options.cacheDir = cacheDir;  // Ensure cacheDir is set for later use
     const platform = options.platform || detectPlatform();
     const hosts = options.hosts || defaultHosts;
 
@@ -41,32 +91,24 @@ const muppeteer = async (options: MuppeteerOptions = {}): Promise<string> => {
         try {
             revision = await resolveBuildId(Browser.CHROMIUM, platform, 'latest');
         } catch (error) {
-            throw new Error("Failed to resolve Chromium revision");
+            console.error("Failed to resolve Chromium revision", error);
+            revision = '1138907';  // Known good default revision
         }
     }
 
-    const executablePath = computeExecutablePath({
-        platform,
-        buildId: revision,
-        cacheDir
-    });
-
-    if (!fs.existsSync(executablePath)) {
-        console.log(`Chromium not found. Downloading revision ${revision}...`);
+    let executablePath: string | undefined;
+    for (const host of hosts) {
+        const baseUrl = getBaseUrl(host);
         try {
-            await install({
-                browser: Browser.CHROMIUM,
-                cacheDir: cacheDir,
-                buildId: revision,
-                baseUrl: hosts[0]
-            });
+            executablePath = await downloadChromium(options, baseUrl, revision);
+            if (executablePath) break;
         } catch (error) {
-            throw new Error("Failed to download Chromium");
+            console.warn(`Failed to download from ${baseUrl}: ${error}`);
         }
     }
 
-    if (!fs.existsSync(executablePath)) {
-        throw new Error("Failed to install Chromium");
+    if (!executablePath) {
+        throw new Error("Failed to download Chromium from all provided hosts");
     }
 
     // Save stats to cache
