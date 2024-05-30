@@ -1,5 +1,5 @@
 {
-  "name": "muppeteer",
+  "name": "@1amageek/muppeteer",
   "publishConfig": {
     "access": "public"
   },
