@@ -2,7 +2,6 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { install, Browser, resolveBuildId, BrowserPlatform } from "@puppeteer/browsers";
-import { computeExecutablePath, detectPlatform, defaultHosts, getStats, saveStats } from "./util";
 
 interface MuppeteerOptions {
     downloadPath?: string;
@@ -13,6 +12,64 @@ interface MuppeteerOptions {
     hosts?: string[];
     folderName?: string;
 }
+
+interface ComputeExecutablePathOptions {
+    platform: BrowserPlatform;
+    buildId: string;
+    cacheDir: string;
+}
+
+export const computeExecutablePath = (options: ComputeExecutablePathOptions): string => {
+    const { platform, buildId, cacheDir } = options;
+    const executableDir = path.resolve(cacheDir, `.chromium-${buildId}`, platform === BrowserPlatform.LINUX ? "chrome-linux" : "chrome-mac");
+    return path.resolve(executableDir, "chrome");
+};
+
+export const detectPlatform = (): BrowserPlatform => {
+    const platform = os.platform();
+    const arch = os.arch();
+
+    if (platform === "darwin") {
+        return arch === "arm64" ? BrowserPlatform.MAC_ARM : BrowserPlatform.MAC;
+    } else if (platform === "win32") {
+        return arch === "x64" ? BrowserPlatform.WIN64 : BrowserPlatform.WIN32;
+    } else if (platform === "linux") {
+        return BrowserPlatform.LINUX;
+    } else {
+        throw new Error(`Unsupported platform: ${platform}`);
+    }
+};
+
+export const defaultHosts = ["https://storage.googleapis.com"];
+
+interface Stats {
+    executablePath: string;
+    revision: string;
+    platform: BrowserPlatform;
+}
+
+const STATS_FILE = ".pcr-stats.json";
+
+export const getStats = (cacheDir: string): Stats | null => {
+    const statsPath = path.resolve(cacheDir, STATS_FILE);
+    if (fs.existsSync(statsPath)) {
+        try {
+            return JSON.parse(fs.readFileSync(statsPath, "utf-8")) as Stats;
+        } catch (error) {
+            console.error("Failed to read stats from cache", error);
+        }
+    }
+    return null;
+};
+
+export const saveStats = (cacheDir: string, stats: Stats): void => {
+    const statsPath = path.resolve(cacheDir, STATS_FILE);
+    try {
+        fs.writeFileSync(statsPath, JSON.stringify(stats, null, 4));
+    } catch (error) {
+        console.error("Failed to save stats to cache", error);
+    }
+};
 
 const getCacheDir = (options: MuppeteerOptions): string => {
     const downloadPath = options.downloadPath || os.homedir();
@@ -36,12 +93,29 @@ export const getSnapshotsDir = (options: MuppeteerOptions): string => {
     return snapshotsDir;
 };
 
-const getBaseUrl = (host: string) => {
+const getBaseUrl = (host: string): string => {
     return `${host}/chromium-browser-snapshots`;
 };
 
-const downloadChromium = async (options: MuppeteerOptions, baseUrl: string, revision: string) => {
+const getDownloadUrl = (platform: BrowserPlatform, buildId: string, baseUrl: string): string => {
+    const folderName = platform === BrowserPlatform.LINUX ? "Linux_x64" :
+                       platform === BrowserPlatform.MAC_ARM ? "Mac_Arm" : 
+                       platform === BrowserPlatform.MAC ? "Mac" :
+                       platform === BrowserPlatform.WIN32 ? "Win" : 
+                       platform === BrowserPlatform.WIN64 ? "Win_x64" : "";
+                       
+    const archiveName = platform === BrowserPlatform.LINUX ? "chrome-linux" :
+                        platform === BrowserPlatform.MAC_ARM || platform === BrowserPlatform.MAC ? "chrome-mac" :
+                        parseInt(buildId, 10) > 591479 ? "chrome-win" : "chrome-win32";
+
+    return `${baseUrl}/${folderName}/${buildId}/${archiveName}.zip`;
+};
+
+const downloadChromium = async (options: MuppeteerOptions, baseUrl: string, revision: string): Promise<string> => {
     const platform = options.platform || detectPlatform();
+    const downloadUrl = getDownloadUrl(platform, revision, baseUrl);
+    
+    console.log(`Downloading Chromium from ${downloadUrl}...`);
     const snapshotsDir = getSnapshotsDir(options);
     const executablePath = computeExecutablePath({
         platform,
@@ -50,7 +124,6 @@ const downloadChromium = async (options: MuppeteerOptions, baseUrl: string, revi
     });
 
     if (!fs.existsSync(executablePath)) {
-        console.log(`Downloading Chromium revision ${revision} from ${baseUrl}...`);
         try {
             await install({
                 browser: Browser.CHROMIUM,
@@ -60,7 +133,7 @@ const downloadChromium = async (options: MuppeteerOptions, baseUrl: string, revi
             });
         } catch (error) {
             console.error("Failed to download Chromium", error);
-            throw error
+            throw error;
         }
     }
 
@@ -108,7 +181,7 @@ const muppeteer = async (options: MuppeteerOptions = {}): Promise<string> => {
     }
 
     if (!executablePath) {
-        throw new Error("Failed to download Chromium from all provided hosts");
+        throw new Error(`Failed to download Chromium from all provided hosts`);
     }
 
     // Save stats to cache

@@ -5,7 +5,6 @@ interface ComputeExecutablePathOptions {
     cacheDir: string;
 }
 export declare const computeExecutablePath: (options: ComputeExecutablePathOptions) => string;
-export declare const headRequest: (url: string) => Promise<boolean>;
 export declare const detectPlatform: () => BrowserPlatform;
 export declare const defaultHosts: string[];
 interface Stats {
