@@ -112,10 +112,11 @@ const getDownloadUrl = (platform: BrowserPlatform, buildId: string, baseUrl: str
 };
 
 const downloadChromium = async (options: MuppeteerOptions, baseUrl: string, revision: string): Promise<string> => {
+    console.log(options, baseUrl, revision)
     const platform = options.platform || detectPlatform();
     const downloadUrl = getDownloadUrl(platform, revision, baseUrl);
     
-    console.log(`Downloading Chromium from ${downloadUrl}...`);
+    console.log(`Downloading Chromium from ${downloadUrl} ...`);
     const snapshotsDir = getSnapshotsDir(options);
     const executablePath = computeExecutablePath({
         platform,
@@ -125,12 +126,14 @@ const downloadChromium = async (options: MuppeteerOptions, baseUrl: string, revi
 
     if (!fs.existsSync(executablePath)) {
         try {
-            await install({
+            const installedBrowser = await install({
                 browser: Browser.CHROMIUM,
                 cacheDir: snapshotsDir,
                 buildId: revision,
                 baseUrl: baseUrl
             });
+            console.log(`Installed Chromium to ${installedBrowser.executablePath}`);
+            return installedBrowser.executablePath;
         } catch (error) {
             console.error("Failed to download Chromium", error);
             throw error;
